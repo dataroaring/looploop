@@ -4,114 +4,88 @@ category: _core
 description: Enhanced execution patterns for long-running tasks with automatic retries, method adaptation, and minimal user interruption
 ---
 
-# Adaptive Execution for Long-Running Tasks
+# Adaptive Execution for Complex Tasks
 
-When facing complex tasks that might require multiple attempts or different approaches, follow these enhanced execution patterns:
+When tasks might fail or require different approaches, use these patterns to minimize user interruption.
 
-## Auto-Adaptation Strategy
+## Multi-Method Strategy
 
-### 1. Multi-Method Approach
-- **Always try multiple methods** before asking for user input
-- Start with the most likely/standard approach
-- Have 2-3 fallback methods ready
-- Only escalate to user when all reasonable attempts fail
+**Try multiple approaches automatically** before asking users:
 
-### 2. Authentication Fallback Chain
-For API access issues, try in order:
-1. **Direct API with provided credentials** (Basic Auth)
-2. **Web session login + API** (Session cookies)
-3. **Alternative endpoints** (Different API versions)
-4. **Web scraping approach** (Parse HTML if API fails)
-5. **Documentation/help lookup** (Find correct method)
+1. **Direct approach**: Use provided credentials/standard method
+2. **Check requirements**: Discover what authentication/format is needed  
+3. **Alternative methods**: Try different API versions, endpoints
+4. **Fallback approaches**: Web scraping if APIs fail
+5. **Ask user**: Only when all reasonable methods exhausted
 
-Only ask for missing credentials when no method works.
+## Authentication Chain
 
-### 3. Progressive Problem Solving
+For API access issues, try in sequence:
+1. **Basic Auth** with provided credentials
+2. **Session cookies** via web login
+3. **Alternative endpoints** (v2, different paths)
+4. **Web interface parsing** as last resort
+
+## Error Adaptation
+
+**Parse errors intelligently**:
+- HTTP 401/403 → try different auth methods
+- HTTP 404 → try alternative endpoints  
+- Rate limiting → implement backoff
+- Format errors → try different data formats
+
+**Preserve what works**: Save successful authentication tokens, API endpoints, parameters for reuse.
+
+## Implementation Patterns
+
+### API Discovery
 ```bash
-# Example pattern for web service access:
-# Try 1: Direct API
-curl -u "user:pass" api/endpoint
-
-# Try 2: Check auth methods
-curl -I api/endpoint  # See what auth is required
-
-# Try 3: Web login session
-curl -c cookies.txt -d "login_data" login_url
-curl -b cookies.txt api/endpoint
-
-# Try 4: Different API version
-curl -b cookies.txt api/v2/endpoint
-
-# Try 5: Web scraping fallback
-curl -b cookies.txt web_interface | parse_html
-```
-
-### 4. Error Analysis and Adaptation
-- **Parse error responses** to understand the issue
-- **Automatically adjust parameters** based on error messages
-- **Try related endpoints** if primary fails
-- **Escalate gracefully** with specific questions
-
-## Context Preservation
-- Use descriptive variable names and temp files when needed
-- Clean up temporary files after task completion
-- Preserve successful authentication methods for reuse
-- Log what worked for future reference
-
-## User Interaction Minimization
-- **Bundle information requests**: Ask for all needed info at once
-- **Provide options**: "I need either X or Y to proceed"
-- **Show progress**: Indicate what has been tried
-- **Be specific**: "I need your JIRA username" not "I need credentials"
-
-## Example Patterns
-
-### Pattern 1: API Access with Unknowns
-```bash
-# Try common authentication methods
-for auth_method in basic token session; do
-    result=$(try_auth_method $auth_method)
-    if [[ $result == "success" ]]; then
+# Try common endpoints
+for endpoint in api/v1 api/v2 rest/api; do
+    if curl -s "$base_url/$endpoint" | grep -q "success"; then
         break
     fi
 done
 ```
 
-### Pattern 2: Service Discovery
-```bash
-# Find the right endpoint
-for endpoint in api/v1 api/v2 rest/api api; do
-    if curl -s "$base_url/$endpoint" | grep -q "success_indicator"; then
-        working_endpoint="$endpoint"
-        break
-    fi
-done
-```
-
-### Pattern 3: Format Adaptation
+### Format Adaptation  
 ```python
-# Try different data formats
-formats = ['json', 'xml', 'text', 'html']
-for fmt in formats:
+# Try different response formats
+for format in ['json', 'xml', 'text']:
     try:
-        data = parse_response(response, fmt)
-        if data:
-            return data
-    except:
-        continue
+        data = parse_response(response, format)
+        if data: return data
+    except: continue
 ```
 
-## When to Ask Users
-Only interrupt the user when:
-1. **All reasonable methods exhausted**
-2. **Specific missing information identified** (credentials, URLs, etc.)
-3. **Ambiguous requirements** need clarification
-4. **Permission/access issues** that require user action
+### Progressive Authentication
+```bash
+# Authentication fallback chain
+curl -u "user:pass" api/endpoint ||
+curl -c cookies.txt -d "login_data" login_url &&
+curl -b cookies.txt api/endpoint ||
+curl -s web_interface | parse_html
+```
+
+## User Interaction Rules
+
+**Only interrupt when**:
+- All reasonable methods failed
+- Specific information missing (credentials, URLs)
+- Ambiguous requirements need clarification
+- Permission issues requiring user action
+
+**When asking**:
+- Bundle all questions at once
+- Be specific: "I need your GitHub token" not "I need credentials" 
+- Show what was tried: "API failed, tried web login, need your password"
+- Provide options: "I can try X or Y, or if you have Z that would be fastest"
 
 ## Success Criteria
+
 - Task completes with minimal user interruption
-- Multiple approaches attempted automatically
+- Multiple approaches attempted transparently  
 - Clear indication of what worked for future use
 - Graceful degradation when perfect solution unavailable
 
-Always prioritize **working solution over perfect solution** when serving user requests.
+**Prioritize working solutions over perfect solutions.**
