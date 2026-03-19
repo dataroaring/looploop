@@ -1,0 +1,28 @@
+{
+  "name": "looploop",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimalist agent: code is just loops + tool pipelines, all decisions driven by the model",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "latest",
+    "@mariozechner/pi-agent-core": "latest",
+    "@sinclair/typebox": "latest",
+    "gray-matter": "latest",
+    "@opentelemetry/api": "latest",
+    "@opentelemetry/sdk-node": "latest",
+    "@opentelemetry/sdk-trace-base": "latest",
+    "@opentelemetry/sdk-metrics": "latest",
+    "@opentelemetry/exporter-trace-otlp-http": "latest",
+    "@opentelemetry/resources": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "@types/node": "latest",
+    "tsx": "latest"
+  }
+}

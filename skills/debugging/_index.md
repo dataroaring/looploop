@@ -1,0 +1,1 @@
+Skills for debugging and investigating failures — CI errors, runtime issues, and incident analysis. Focus on maximizing information gathering from existing sources before attempting local reproduction.
