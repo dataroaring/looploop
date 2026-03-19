@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Minimalist agent: code is just loops + tool pipelines, all decisions driven by the model",
   "main": "src/index.ts",
+  "bin": {
+    "looploop": "bin/looploop.mjs"
+  },
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts"
