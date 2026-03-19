@@ -5,6 +5,7 @@ import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import { getModel, getProviders, getModels, streamSimple, type AssistantMessage, type ToolResultMessage } from "@mariozechner/pi-ai";
 import { allTools } from "./tools/index.js";
 import { bindMessageAccess } from "./tools/replace-messages.js";
+import { setParentModel } from "./tools/spawn-subagent.js";
 import { loadCoreSkills } from "./skill-loader.js";
 import {
   initTelemetry,
@@ -219,6 +220,8 @@ async function main() {
     },
     streamFn: streamSimple,
   });
+
+  setParentModel(provider, modelId);
 
   bindMessageAccess(
     () => agent.state.messages,
@@ -497,6 +500,7 @@ async function main() {
             const newModel = getModel(p as any, m as any);
             agent.state.model = newModel as any;
             console.log(`  Switched to ${p}/${m}`);
+            setParentModel(p, m);
           } catch (err: any) {
             console.log(red(`  Failed: ${err.message}`));
           }
