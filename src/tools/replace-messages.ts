@@ -19,6 +19,18 @@ export function bindMessageAccess(
   _replaceMessagesFn = replaceMessages;
 }
 
+/**
+ * Pending compression — stored by the tool, applied by afterToolCall hook
+ * to splice the running loop's context.messages in-place.
+ */
+let _pendingCompression: { beforeIndex: number; summaryMessage: AgentMessage } | null = null;
+
+export function consumePendingCompression(): { beforeIndex: number; summaryMessage: AgentMessage } | null {
+  const pending = _pendingCompression;
+  _pendingCompression = null;
+  return pending;
+}
+
 export const replaceMessagesTool: AgentTool<typeof params> = {
   name: "replace_messages",
   label: "Replace Messages",
@@ -42,7 +54,12 @@ export const replaceMessagesTool: AgentTool<typeof params> = {
       timestamp: Date.now(),
     };
 
+    // Update agent state (for after the loop ends)
     _replaceMessagesFn([summaryMessage, ...kept]);
+
+    // Store pending compression so afterToolCall hook can splice the loop's context
+    _pendingCompression = { beforeIndex: before_index, summaryMessage };
+
     recordCompression();
 
     return {

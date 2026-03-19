@@ -26,3 +26,28 @@ Use `replace_messages` with a summary that includes:
 
 ## Summary Format
 Write summaries as structured notes, not narrative. Use bullet points for quick scanning.
+
+## Writing Compression: Reduce Token Count ~50%
+When writing summaries, actively strip low-value tokens while preserving semantics:
+
+### Remove
+- Filler words: 的确、其实、然后、所以、basically、actually、just、really
+- Redundant connectors: 另外、此外、与此同时、furthermore、additionally
+- Politeness/meta phrases: "让我来看看"、"I'll check this for you"
+- Verbose phrasing: "在这个过程中" → remove; "需要注意的是" → remove
+- Repeated context: if a fact was stated once, don't restate
+
+### Keep
+- Proper nouns, URLs, numbers, dates, config values
+- Causal relationships (A → B)
+- Decisions and their reasons
+- Error messages and key tool outputs
+
+### Example
+Before (38 tokens):
+> 我们检查了 ForgeCode 的官网，发现他们目前并没有一个独立的定价页面，定价信息实际上只存在于一篇 2025 年 7 月的博客文章中
+
+After (20 tokens):
+> ForgeCode 无独立定价页，仅存于博客文章 (2025-07)
+
+Target: ~50% token reduction vs naive summary.

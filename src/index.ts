@@ -4,8 +4,8 @@ import path from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import { getModel, getProviders, getModels, streamSimple, type AssistantMessage, type ToolResultMessage } from "@mariozechner/pi-ai";
 import { allTools } from "./tools/index.js";
-import { bindMessageAccess } from "./tools/replace-messages.js";
-import { setParentModel, setParentSessionId, listSubagentSessions, loadSubagentSession } from "./tools/spawn-subagent.js";
+import { bindMessageAccess, consumePendingCompression } from "./tools/replace-messages.js";
+import { setParentModel, setParentSessionId, bindParentContext, listSubagentSessions, loadSubagentSession } from "./tools/spawn-subagent.js";
 import { loadCoreSkills } from "./skill-loader.js";
 import {
   initTelemetry,
@@ -212,21 +212,41 @@ async function main() {
   const { provider, modelId } = parseModelSpec(modelSpec);
   const model = getModel(provider as any, modelId as any);
 
+  const thinkingLevel = (process.env.LOOPLOOP_THINKING as any) || "low";
+
   const agent = new Agent({
     initialState: {
       systemPrompt,
       model,
       tools: allTools,
+      thinkingLevel,
     },
     streamFn: streamSimple,
   });
 
   setParentModel(provider, modelId);
+  bindParentContext(() => ({
+    systemPrompt: agent.state.systemPrompt,
+    messages: agent.state.messages,
+  }));
 
   bindMessageAccess(
     () => agent.state.messages,
     (msgs) => agent.replaceMessages(msgs),
   );
+
+  // Hook: apply compression to the running loop's context in-place
+  agent.setAfterToolCall(async (ctx) => {
+    if (ctx.toolCall.name === "replace_messages" && !ctx.isError) {
+      const pending = consumePendingCompression();
+      if (pending) {
+        // Splice the loop's context.messages array in-place
+        // This ensures the next LLM turn sees the compressed context
+        ctx.context.messages.splice(0, pending.beforeIndex, pending.summaryMessage);
+      }
+    }
+    return undefined;
+  });
 
   // ── Display + Telemetry ──
 
@@ -288,6 +308,11 @@ async function main() {
 
           // Display compact turn summary
           display.turnEnd(am.model, tokensIn, am.usage.output, latencyMs, am.usage.cost.total, am.stopReason);
+
+          // Display error if present
+          if (am.errorMessage) {
+            console.log(red(`  Error: ${am.errorMessage}`));
+          }
         }
         if (currentTurnSpan) endSpan(currentTurnSpan);
         currentTurnSpan = null;
@@ -305,6 +330,11 @@ async function main() {
         switch (evt.type) {
           case "thinking_start":
             display.thinkingStart();
+            break;
+          case "thinking_delta":
+            if ("delta" in evt) {
+              display.thinkingDelta(evt.delta as string);
+            }
             break;
           case "thinking_end":
             if ("content" in evt) {
@@ -383,7 +413,7 @@ async function main() {
     rlAny.history.push(...savedHistory.reverse());
   }
 
-  console.log(dim(`  model: ${provider}/${modelId}`));
+  console.log(dim(`  model: ${provider}/${modelId}  thinking: ${thinkingLevel}`));
   console.log("looploop agent ready. Commands: /context, /browse, /sessions, /subagents, /resume <id>, /load <id>, /model, /exit");
   console.log(dim("  Press Esc to abort a running prompt\n"));
 
@@ -418,6 +448,12 @@ async function main() {
           if (!sub) {
             console.log(red(`Subagent "${arg}" not found.`));
           } else {
+            let output = "(no output file)";
+            try {
+              if (sub.outputPath && fs.existsSync(sub.outputPath)) {
+                output = fs.readFileSync(sub.outputPath, "utf-8");
+              }
+            } catch {}
             const detail = [
               `── Subagent: ${sub.id} ──`,
               `  parent:    ${sub.parentSessionId ?? "(none)"}`,
@@ -425,11 +461,12 @@ async function main() {
               `  skills:    ${sub.skills.length > 0 ? sub.skills.join(", ") : "none"}`,
               `  model:     ${sub.model}`,
               `  turns:     ${sub.turns}`,
+              `  output:    ${sub.outputPath}`,
               `  created:   ${sub.createdAt}`,
               `  completed: ${sub.completedAt}`,
               ``,
-              `── Result ──`,
-              sub.result,
+              `── Output ──`,
+              output,
             ].join("\n");
             rl.pause();
             await display.pager(detail);

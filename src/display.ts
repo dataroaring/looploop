@@ -29,8 +29,12 @@ function formatKeyArgs(toolName: string, args: Record<string, any>): string {
       return args.query ? `"${truncate(String(args.query), 40)}"` : "";
     case "activate_skill":
       return args.name ?? "";
-    case "spawn_subagent":
-      return args.task ? truncate(String(args.task), 60) : "";
+    case "spawn_subagent": {
+      const tasks = args.tasks as any[];
+      if (!tasks || tasks.length === 0) return "";
+      if (tasks.length === 1) return truncate(String(tasks[0].task), 60);
+      return `${tasks.length} tasks: ${tasks.map((t: any) => truncate(String(t.task), 30)).join(", ")}`;
+    }
     case "replace_messages":
       return args.before_index != null ? `before=${args.before_index}` : "";
     case "get_context_info":
@@ -110,14 +114,32 @@ export class RunDisplay {
 
   // ── Thinking ──
 
+  private isThinking = false;
+  private thinkingContent = "";
+
   thinkingStart() {
-    console.log(dim(`  ${magenta("◆")} thinking...`));
+    this.flushText();
+    this.isThinking = true;
+    this.thinkingContent = "";
+    process.stdout.write(dim(`  ${magenta("◆")} `));
+  }
+
+  thinkingDelta(delta: string) {
+    this.thinkingContent += delta;
+    process.stdout.write(dim(delta));
   }
 
   thinkingEnd(content: string) {
-    const compact = `  ${magenta("◆")} ${dim("thinking")}`;
-    const detail = `Thinking:\n${content}`;
+    if (this.isThinking) {
+      this.isThinking = false;
+      process.stdout.write("\n");
+    }
+    const fullContent = content || this.thinkingContent;
+    const preview = fullContent.length > 80 ? fullContent.slice(0, 80) + "…" : fullContent;
+    const compact = `  ${magenta("◆")} ${dim(preview.replace(/\n/g, " "))}`;
+    const detail = `Thinking:\n${fullContent}`;
     this.entries.push({ type: "thinking", compact, detail });
+    this.thinkingContent = "";
   }
 
   // ── Tool ──
@@ -125,6 +147,10 @@ export class RunDisplay {
   toolAnnounce(name: string, args: Record<string, any>) {
     if (this.isStreaming) {
       this.isStreaming = false;
+      process.stdout.write("\n");
+    }
+    if (this.isThinking) {
+      this.isThinking = false;
       process.stdout.write("\n");
     }
     const keyArgs = formatKeyArgs(name, args);
