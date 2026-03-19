@@ -10,8 +10,7 @@ When diagnosing any failure (CI, runtime, production), **exhaust all available i
 
 ## Core Principle
 
-> 尽可能多的挖掘现场信息，再次才是复现。
-> (Extract as much information as possible from the scene first; reproduction comes second.)
+> Extract as much information as possible from the scene first; reproduction comes second.
 
 ## Information Gathering Priority
 
