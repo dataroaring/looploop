@@ -5,7 +5,7 @@ import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import { getModel, getProviders, getModels, streamSimple, type AssistantMessage, type ToolResultMessage } from "@mariozechner/pi-ai";
 import { allTools } from "./tools/index.js";
 import { bindMessageAccess } from "./tools/replace-messages.js";
-import { setParentModel } from "./tools/spawn-subagent.js";
+import { setParentModel, setParentSessionId, listSubagentSessions, loadSubagentSession } from "./tools/spawn-subagent.js";
 import { loadCoreSkills } from "./skill-loader.js";
 import {
   initTelemetry,
@@ -232,6 +232,7 @@ async function main() {
 
   const display = new RunDisplay();
   const session = new SessionStore();
+  setParentSessionId(session.sessionId);
   console.log(dim(`  session: ${session.sessionId}`));
 
   let currentTrace: ReturnType<typeof startTrace> | null = null;
@@ -383,7 +384,7 @@ async function main() {
   }
 
   console.log(dim(`  model: ${provider}/${modelId}`));
-  console.log("looploop agent ready. Commands: /context, /browse, /sessions, /resume <id>, /load <id>, /model, /exit");
+  console.log("looploop agent ready. Commands: /context, /browse, /sessions, /subagents, /resume <id>, /load <id>, /model, /exit");
   console.log(dim("  Press Esc to abort a running prompt\n"));
 
   const prompt = () => {
@@ -394,6 +395,49 @@ async function main() {
       // Save to history (rl.history is newest-first internally)
       const rlHistory: string[] = (rl as any).history ?? [];
       saveHistory([...rlHistory].reverse().filter(Boolean));
+
+
+      if (trimmed === "/subagents" || trimmed.startsWith("/subagents ")) {
+        const arg = trimmed.slice(10).trim();
+        if (!arg || arg === "list") {
+          const subs = listSubagentSessions();
+          if (subs.length === 0) {
+            console.log(dim("(no subagent sessions)"));
+          } else {
+            console.log(`\n  ${subs.length} subagent session(s):\n`);
+            for (const s of subs) {
+              const date = new Date(s.createdAt).toLocaleString();
+              const parent = s.parentSessionId ? dim(` parent:${s.parentSessionId}`) : "";
+              console.log(`  ${s.id}  ${s.turns} turns  ${date}${parent}`);
+              console.log(dim(`    ${s.task.slice(0, 100)}`));
+            }
+            console.log(dim(`\n  /subagents <id> to view details\n`));
+          }
+        } else {
+          const sub = loadSubagentSession(arg);
+          if (!sub) {
+            console.log(red(`Subagent "${arg}" not found.`));
+          } else {
+            const detail = [
+              `── Subagent: ${sub.id} ──`,
+              `  parent:    ${sub.parentSessionId ?? "(none)"}`,
+              `  task:      ${sub.task}`,
+              `  skills:    ${sub.skills.length > 0 ? sub.skills.join(", ") : "none"}`,
+              `  model:     ${sub.model}`,
+              `  turns:     ${sub.turns}`,
+              `  created:   ${sub.createdAt}`,
+              `  completed: ${sub.completedAt}`,
+              ``,
+              `── Result ──`,
+              sub.result,
+            ].join("\n");
+            rl.pause();
+            await display.pager(detail);
+            rl.resume();
+          }
+        }
+        return prompt();
+      }
 
       if (trimmed === "/sessions") {
         const sessions = SessionStore.list();
@@ -423,6 +467,7 @@ async function main() {
           // Restore messages
           agent.replaceMessages(data.messages);
           session.resumeSession(targetId);
+          setParentSessionId(session.sessionId);
           rebuildMetrics(data.messages);
 
           // Restore model if saved
@@ -459,6 +504,7 @@ async function main() {
         } else {
           agent.replaceMessages(messages);
           session.resumeSession(targetId);
+          setParentSessionId(session.sessionId);
           rebuildMetrics(messages);
           console.log(`Loaded session ${targetId} (${messages.length} messages)`);
         }
