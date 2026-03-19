@@ -7,15 +7,23 @@ Minimalist agent framework where code is just loops + tool pipelines. All decisi
 - **Code zero decisions** — Code provides the loop and tools (pure I/O pipeline)
 - **Model all decisions** — Skill selection, subagent spawning, context compression — all LLM-driven
 - **Progressive disclosure** — Skills discovered and activated on demand, never preloaded
-- **Context isolation** — Deep work and compression via isolated subagents
-- **Full history** — All messages retained by default; the model decides when to compress
+- **Context isolation** — Deep work via isolated subagents with full tool access
+- **Session awareness** — Auto-detects topic switches and compresses stale context
+- **Full history** — Sessions and subagent runs persisted for traceability
 - **OTel observability** — All runtime data saved in OpenTelemetry format
 
 ## Quick Start
 
 ```bash
 npm install
+npm link          # registers the 'looploop' command globally
 export ANTHROPIC_API_KEY=sk-ant-...
+looploop
+```
+
+Or without global install:
+
+```bash
 npm start
 ```
 
@@ -28,7 +36,29 @@ Type messages at the `>` prompt. The agent streams responses and uses tools auto
 | Command | Description |
 |---------|-------------|
 | `/context` | Show session stats (tokens, cost, tool calls, active skills) |
+| `/context detail` | Browse full message history with token/cost per turn |
+| `/browse` | Browse tool outputs and responses from the last run |
+| `/sessions` | List saved sessions |
+| `/resume <id>` | Resume a previous session (restores messages and model) |
+| `/load <id>` | Load messages from a previous session without resuming |
+| `/subagents` | List all subagent runs |
+| `/subagents <id>` | View details of a specific subagent run |
+| `/model` | Show current model |
+| `/model list` | List available models |
+| `/model <provider/id>` | Switch model (e.g. `/model anthropic/claude-sonnet-4-20250514`) |
+| `/noauto` | Disable automatic topic-switch detection for this session |
 | `/exit` | Quit |
+
+### Session Awareness
+
+The agent automatically detects when your input is unrelated to the current conversation. When a topic switch is detected, it compresses the old context and starts fresh — no stale tokens wasted.
+
+| Input | Behavior |
+|-------|----------|
+| Normal message | Agent checks relevance, auto-compresses if unrelated |
+| `+ <message>` | Force continue in current context, skip relevance check |
+| "new topic" / "start fresh" | Explicitly request a new context |
+| `/noauto` | Disable auto-detection for the rest of the session |
 
 ### Example Session
 
@@ -55,7 +85,7 @@ User input → readline → agent.prompt() → LLM → tool calls → LLM → st
                      (from _core/ skills)      (file I/O, shell, skills, subagents)
 ```
 
-The entry point (`src/index.ts`) is ~120 lines: a readline loop, agent creation, and OTel event subscriptions. No routing logic, no conditionals on tool results.
+The entry point (`src/index.ts`) is a readline loop, agent creation, and event subscriptions. No routing logic, no conditionals on tool results.
 
 ## Tools
 
@@ -77,7 +107,7 @@ The model has access to 9 tools:
 ### Subagent
 | Tool | Description |
 |------|-------------|
-| `spawn_subagent` | Create an isolated sub-agent for focused tasks |
+| `spawn_subagent` | Create an isolated sub-agent with bash/read/write/skill tools |
 
 ### External
 | Tool | Description |
@@ -86,16 +116,28 @@ The model has access to 9 tools:
 | `write` | Write a file |
 | `bash` | Execute a shell command |
 
+## Subagents
+
+Subagents are isolated agent instances spawned for focused tasks:
+
+- **Own context** — Independent message history, no pollution of parent context
+- **Full tools** — Access to bash, read, write, and skill tools (no nesting)
+- **Model inheritance** — Uses the same model as the parent agent
+- **Persisted** — Every run saved to `.looploop/subagents/` with task, result, messages, and parent session link
+- **Traceable** — View history via `/subagents`, inspect details via `/subagents <id>`
+
 ## Skills
 
-Skills are markdown files with YAML frontmatter, organized in a MoE (Mixture of Experts) hierarchy:
+Skills are markdown files with YAML frontmatter, organized by category:
 
 ```
 skills/
 ├── _core/              # Loaded at startup into system prompt
-│   ├── loop.md         # Core agent behavior
+│   ├── loop.md         # Core agent behavior + session awareness
 │   └── skill-organizer.md
-├── reasoning/          # Activated on demand by the model
+├── debugging/          # Activated on demand
+│   └── investigate-first.md
+├── reasoning/
 │   ├── thinking.md
 │   ├── analysis.md
 │   └── planning.md
@@ -114,87 +156,6 @@ skills/
 
 ```markdown
 ---
-name: thinking
-category: reasoning
-description: Step-by-step reasoning for complex multi-step tasks
----
-
-(Prompt content loaded when activated)
-```
-
-### How Skills Work
-
-1. `_core/` skills are loaded into the system prompt at startup
-2. Category `_index.md` files provide routing signals for the model
-3. The model discovers skills via `list_skills` / `search_skills`
-4. Skills are loaded into context via `activate_skill` when needed
-
-## Observability
-
-All runtime data is recorded in OpenTelemetry format.
-
-### Trace Files
-
-Traces are written to `.looploop/traces/` as OTLP JSON files. Each file contains spans for:
-- Agent runs (root trace)
-- LLM turns (with model, token counts, latency, cost)
-- Tool executions (with name and arguments)
-- Subagent runs (child traces)
-
-### Remote Collector
-
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also send traces to a remote collector (Jaeger, Grafana, etc.):
-
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
-npm start
-```
-
-### In-Session Metrics
-
-Use `/context` or the `get_context_info` tool to see live metrics:
-- Token consumption (input/output)
-- Cost tracking
-- Tool call counts
-- Active skills
-- Compression events
-- Average LLM latency
-
-## Project Structure
-
-```
-src/
-├── index.ts            # Entry: Agent + REPL + OTel event subscriptions
-├── types.ts            # SkillMeta, SkillGroup, ContextStats
-├── telemetry.ts        # OTel initialization + file exporter + metric helpers
-├── skill-loader.ts     # Directory scanning + frontmatter parsing
-└── tools/
-    ├── index.ts         # Exports all tools
-    ├── list-skills.ts
-    ├── search-skills.ts
-    ├── activate-skill.ts
-    ├── get-context-info.ts
-    ├── replace-messages.ts
-    ├── spawn-subagent.ts
-    ├── read.ts
-    ├── write.ts
-    └── bash.ts
-```
-
-## Dependencies
-
-- [`@mariozechner/pi-agent-core`](https://github.com/badlogic/pi-mono) — Agent loop
-- [`@mariozechner/pi-ai`](https://github.com/badlogic/pi-mono) — LLM abstraction (model registry, streaming, tool validation)
-- [`@sinclair/typebox`](https://github.com/sinclairzx81/typebox) — Tool parameter schemas
-- [`gray-matter`](https://github.com/jonschlinkert/gray-matter) — YAML frontmatter parsing
-- [`@opentelemetry/*`](https://opentelemetry.io/) — Trace/span/metric infrastructure
-
-## Adding Skills
-
-Create a `.md` file in the appropriate `skills/<category>/` directory:
-
-```markdown
----
 name: my-skill
 category: reasoning
 description: One-line description used for search routing
@@ -204,12 +165,89 @@ Your prompt content here. This is injected into context
 when the model calls activate_skill("my-skill").
 ```
 
-Add a `_index.md` to new categories:
+### How Skills Work
+
+1. `_core/` skills are loaded into the system prompt at startup
+2. Category `_index.md` files provide routing signals for the model
+3. The model discovers skills via `list_skills` / `search_skills`
+4. Skills are loaded into context via `activate_skill` when needed
+
+## Persistence
+
+```
+.looploop/
+├── sessions/           # Main conversation sessions
+│   └── 2026-03-19-0110-x4ab.json
+├── subagents/          # Subagent run history
+│   └── sub-2026-03-19-0215-k3bc.json
+├── traces/             # OpenTelemetry trace files
+│   └── trace-1773899813079.json
+└── history             # Readline command history
+```
+
+Sessions and subagent runs are persisted automatically. Subagent sessions include `parentSessionId` for linking back to the calling session.
+
+## Observability
+
+All runtime data is recorded in OpenTelemetry format.
+
+### Remote Collector
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to send traces to a remote collector (Jaeger, Grafana, etc.):
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+looploop
+```
+
+### In-Session Metrics
+
+Use `/context` or the `get_context_info` tool to see live metrics:
+- Token consumption (input/output) and cost
+- Tool call counts and active skills
+- Compression events and average LLM latency
+
+## Project Structure
+
+```
+src/
+├── index.ts            # Entry: Agent + REPL + event subscriptions
+├── types.ts            # SkillMeta, SkillGroup, ContextStats
+├── display.ts          # Terminal output and browsing
+├── session.ts          # Session persistence
+├── telemetry.ts        # OTel initialization + file exporter + metrics
+├── skill-loader.ts     # Directory scanning + frontmatter parsing
+└── tools/
+    ├── index.ts         # Exports all tools
+    ├── list-skills.ts
+    ├── search-skills.ts
+    ├── activate-skill.ts
+    ├── get-context-info.ts
+    ├── replace-messages.ts
+    ├── spawn-subagent.ts  # Subagent with tool access + session persistence
+    ├── read.ts
+    ├── write.ts
+    └── bash.ts
+```
+
+## Adding Skills
+
+Create a `.md` file in `skills/<category>/`:
 
 ```markdown
 ---
-description: What this category covers — helps the model route to the right skills
+name: my-skill
+category: my-category
+description: One-line description used for search routing
 ---
+
+Prompt content here.
+```
+
+Add `_index.md` to new categories to help the model route:
+
+```markdown
+Description of what this category covers.
 ```
 
 ## License
